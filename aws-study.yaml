@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS-Study Template
+
+Resources:
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: aws-study-vpc
+
+  # Subnet (2つともパブリックIPを自動付与可能にする)
+  SubnetAZ1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.2.0.0/24
+      VpcId: !Ref VPC
+      AvailabilityZone: ap-northeast-1a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: aws-study-subnet1a
+
+  SubnetAZ1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.2.1.0/24
+      VpcId: !Ref VPC
+      AvailabilityZone: ap-northeast-1c
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: aws-study-subnet1c
+
+  # InternetGateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: aws-study-gw
+
+  # VPCGatewayAttachment
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # RouteTable
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: aws-study-route
+
+  RouteInternet:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # 各サブネットとルートテーブルを関連付け (パブリックサブネット化)
+  RouteLocal:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetAZ1a
+
+  # ALB や RDS を配置する SubnetAZ1c もインターネットアクセスできるように関連付け
+  RouteLocal2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetAZ1c
+
+  # SecurityGroup
+  SecurityGroupEC2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study EC2
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: aws-study-securityGroup-ec2
+
+  SecurityGroupRDS:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study RDS
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref SecurityGroupEC2
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: aws-study-securityGroup-rds
+
+  # EC2 (Amazon Linux 2023, t2.micro)
+  EC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      # Amazon Linux 2023 の最新AMIをSSMパラメータストアから取得
+      ImageId: !Sub "resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+      InstanceType: t2.micro
+      SubnetId: !Ref SubnetAZ1a
+      DisableApiTermination: false
+      InstanceInitiatedShutdownBehavior: stop
+      KeyName: koujienami
+      Monitoring: false
+      SecurityGroupIds:
+        - !Ref SecurityGroupEC2
+      Tags:
+        - Key: Name
+          Value: aws-study-ec2
+
+  # RDS
+  RDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      DBInstanceClass: db.t4g.micro
+      Port: 3306
+      StorageType: gp2
+      BackupRetentionPeriod: 1
+      MasterUsername: root
+      MasterUserPassword: rootroot
+      PreferredBackupWindow: 15:00-16:00
+      PreferredMaintenanceWindow: sun:18:00-sun:19:00
+      DBName: awsstudy
+      Engine: mysql
+      EngineVersion: 8.0.41
+      LicenseModel: general-public-license
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref SecurityGroupRDS
+      Tags:
+        - Key: Name
+          Value: aws-study-rds
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Created from the RDS Management Console
+      SubnetIds:
+        - !Ref SubnetAZ1a
+        - !Ref SubnetAZ1c
+
+  # ELB
+  ELB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: aws-study-elb
+      SecurityGroups:
+        - !Ref SecurityGroupEC2
+      Subnets:
+        - !Ref SubnetAZ1a
+        - !Ref SubnetAZ1c
+      Tags:
+        - Key: Name
+          Value: aws-study-elb
+
+  ELBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: aws-study-elb-target-group
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: "/"
+      HealthCheckPort: "traffic-port"
+      HealthCheckIntervalSeconds: 10
+      Matcher:
+        HttpCode: 200
+      Tags:
+        - Key: Name
+          Value: aws-study-elb-target-group
+      Targets:
+        - Id: !Ref EC2
+          Port: 8080
+
+  ELBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ELB
+      DefaultActions:
+        - TargetGroupArn: !Ref ELBTargetGroup
+          Type: forward
+      Port: 80
+      Protocol: HTTP
+
+  EC2CPUUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: aws-study-cpu-utilization-alarm"
+      AlarmDescription: "Aws-Study EC2のCPU使用率が 70%以上になりました。"
+
+      Namespace: "AWS/EC2"
+      Dimensions:
+        - Name: "InstanceId"
+          Value: !Ref EC2
+      MetricName: "CPUUtilization"
+      Unit: "Percent"
+
+      Period: 300
+      Statistic: "Average"
+
+      Threshold: 70
+      ComparisonOperator: "GreaterThanOrEqualToThreshold"
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      TreatMissingData: "missing"
+
+      ActionsEnabled: True
+      AlarmActions: 
+        - arn:aws:sns:ap-northeast-1:913925038760:AWS-Study-Topic
