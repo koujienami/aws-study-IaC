@@ -223,6 +223,7 @@ Resources:
       Port: 80
       Protocol: HTTP
 
+  # CloudWatch Alerm
   EC2CPUUtilizationAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -248,3 +249,85 @@ Resources:
       ActionsEnabled: True
       AlarmActions: 
         - arn:aws:sns:ap-northeast-1:913925038760:AWS-Study-Topic
+  
+  # WebACL
+  WebACL:
+    Type: "AWS::WAFv2::WebACL"
+    Properties:
+      Name: aws-study-alb-acl
+      Scope: "REGIONAL"
+      DefaultAction:
+        Allow: {}
+      Description: "Web ACL for InternetALB"
+      VisibilityConfig: 
+          SampledRequestsEnabled: true
+          CloudWatchMetricsEnabled: true
+          MetricName: !Sub aws-waf-logs-aws-study-alb-acl
+      Rules:
+        - Name: "AWS-AWSManagedRulesCommonRuleSet"
+          Priority: 1
+          OverrideAction:
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: "AWS-AWSManagedRulesCommonRuleSet"
+          Statement:
+            ManagedRuleGroupStatement:
+              Name: "AWSManagedRulesCommonRuleSet"
+              VendorName: "AWS"
+
+  WAFLogConfig:
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      LogDestinationConfigs: 
+        - !Select [0, !Split [":*", !GetAtt WAFLogGroup.Arn]]
+      ResourceArn: !GetAtt WebACL.Arn
+
+  WebACLAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties: 
+      ResourceArn: !Ref ELB
+      WebACLArn: !GetAtt WebACL.Arn
+
+  WAFLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub aws-waf-logs-aws-study-alb-acl
+      RetentionInDays: 365
+      Tags: 
+        - Key: Name
+          Value: !Sub aws-waf-logs-aws-study-alb-acl
+
+  WAFToCWLogsPolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: WAFToCWLogsPolicy
+      PolicyDocument: 
+        Fn::Sub:
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "delivery.logs.amazonaws.com"
+                  },
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": "${CloudWatchLogsLogGroupArn}",
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:SourceAccount": ${AWS::AccountId}
+                    },
+                    "ArnLike": {
+                      "aws:SourceArn": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+                    }
+                  }
+                }
+              ]
+            }
+          - CloudWatchLogsLogGroupArn: !GetAtt WAFLogGroup.Arn
