@@ -32,10 +32,10 @@ jobs:
           terraform_wrapper: false
 
       - name: Terraform validate
-        run: terraform validate -no-color
+        run: terraform validate
 
       - name: Terraform test
-        run: terraform test -no-color
+        run: terraform test
 
       - name: Terraform plan (dry-run)
-        run: terraform plan -input=false -no-color
+        run: terraform plan -input=false
