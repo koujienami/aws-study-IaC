@@ -1,0 +1,45 @@
+name: Terraform CI
+
+on:
+  pull_request:
+    paths:
+      - 'tf/**.tf'
+      - 'tf/tests/**.tftest.hcl'
+  push:
+    branches: [ main ]
+    paths:
+      - 'tf/**.tf'
+      - 'tf/tests/**.tftest.hcl'
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    # すべての terraform コマンドは tf ディレクトリで実行
+    defaults:
+      run:
+        working-directory: tf
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+          terraform_wrapper: false
+
+      - name: Terraform fmt ⏵ 書式チェック
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        run: terraform validate -no-color
+
+      - name: Terraform test
+        run: terraform test -no-color
+
+      - name: Terraform plan (dry‑run)
+        run: terraform plan -input=false -no-color
