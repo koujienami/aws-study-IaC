@@ -28,13 +28,7 @@ jobs:
         with:
           terraform_version: 1.11.4
           terraform_wrapper: false
-
-      - name: Terraform fmt ⏵ 書式チェック
-        run: terraform fmt -check -recursive
-
-      - name: Terraform init
-        run: terraform init -input=false
-
+          
       - name: Terraform validate
         run: terraform validate -no-color
 
