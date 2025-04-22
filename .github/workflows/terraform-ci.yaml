@@ -28,12 +28,12 @@ jobs:
         with:
           terraform_version: 1.11.4
           terraform_wrapper: false
-          
-      - name: Terraform validate
+
+      - name: Terraform validate
         run: terraform validate -no-color
 
-      - name: Terraform test
+      - name: Terraform test
         run: terraform test -no-color
 
-      - name: Terraform plan (dry‑run)
+      - name: Terraform plan (dry-run)
         run: terraform plan -input=false -no-color
